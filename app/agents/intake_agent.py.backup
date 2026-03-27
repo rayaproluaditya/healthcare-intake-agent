@@ -1,0 +1,484 @@
+"""
+Healthcare Intake Agent - Complete Working Version
+Handles patient intake, symptom analysis, and data extraction
+"""
+
+from typing import List, Dict, Optional
+import requests
+from app.agents.safety_guardrails import SafetyGuardrails
+from app.vector_db.faiss_client import FAISSVectorDB
+from app.models.patient_data import PatientIntake, Symptom, Severity
+import json
+import logging
+import os
+import re
+from datetime import datetime
+from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class HealthcareIntakeAgent:
+    """Healthcare intake agent using Groq API"""
+    
+    def __init__(self, vector_db: FAISSVectorDB, model_name: str = None):
+        self.vector_db = vector_db
+        
+        # Load environment variables
+        load_dotenv(override=True)
+        
+        # Get API key and clean it
+        self.api_key = os.getenv("GROQ_API_KEY")
+        if self.api_key:
+            self.api_key = self.api_key.strip().replace('\n', '').replace('\r', '')
+        
+        # Get model name - use the working model
+        if model_name is None:
+            self.model_name = os.getenv("GROQ_MODEL_NAME", "llama-3.3-70b-versatile")
+        else:
+            self.model_name = model_name
+        
+        self.safety_guardrails = SafetyGuardrails()
+        
+        # Initialize patient data
+        self.patient_data = PatientIntake()
+        
+        # Conversation history
+        self.conversation_history = []
+        
+        logger.info(f"Agent initialized with model: {self.model_name}")
+        logger.info(f"API Key present: {bool(self.api_key)}")
+        
+        # Clinical system prompt
+        self.system_prompt = """You are a professional healthcare intake agent with a clinical, empathetic tone. 
+Your role is to gather structured medical information, NOT to diagnose or provide treatment advice.
+
+KEY PRINCIPLES:
+1. NEVER diagnose conditions or recommend specific treatments
+2. Always maintain a professional, empathetic, and non-judgmental tone
+3. Ask structured questions about symptoms: onset, duration, severity, location, quality
+4. Collect comprehensive medical history: pre-existing conditions, allergies, medications
+5. Flag potential emergencies appropriately and advise seeking immediate care
+6. Structure information clearly for medical professional review
+
+EMERGENCY FLAGGING:
+If patient mentions any of these, immediately advise emergency care:
+- Chest pain with shortness of breath, sweating, or arm/jaw pain
+- Severe difficulty breathing
+- Sudden severe headache (worst of life)
+- Loss of consciousness
+- Severe bleeding
+- Suicidal thoughts
+
+QUESTION STRUCTURE:
+Ask about symptoms systematically:
+1. Onset: When did it start?
+2. Location: Where exactly?
+3. Duration: How long does it last?
+4. Character: What does it feel like?
+5. Aggravating factors: What makes it worse?
+6. Relieving factors: What makes it better?
+7. Timing: Is it constant or intermittent?
+8. Severity: On a scale of 1-10
+
+Remember: You are a data collector for healthcare providers. Always advise consulting qualified medical professionals for medical decisions."""
+        
+    def process_message(self, message: str) -> Dict:
+        """Process user message and generate response"""
+        try:
+            logger.info(f"Processing: {message[:100]}...")
+            
+            # Check for emergencies first
+            is_emergency, emergencies = self.safety_guardrails.check_emergency(message)
+            if is_emergency:
+                logger.warning(f"Emergency detected: {emergencies}")
+                return {
+                    "response": self.safety_guardrails.get_emergency_response(emergencies),
+                    "emergency": True,
+                    "patient_data": self.patient_data.dict(),
+                    "emergencies": emergencies
+                }
+            
+            # Check for sensitive topics
+            is_sensitive, topics = self.safety_guardrails.check_sensitive_topics(message)
+            
+            # Retrieve relevant medical guidelines from vector DB
+            context = self.retrieve_relevant_context(message)
+            
+            # Generate response using Groq
+            response = self.generate_response(message, context)
+            
+            # Check response safety
+            is_safe, violations = self.safety_guardrails.check_safety(response)
+            if not is_safe:
+                response = self.safety_guardrails.get_safety_response(violations)
+            
+            # Add sensitive topic handling if needed
+            if is_sensitive:
+                response = f"{response}\n\n{self.safety_guardrails.get_sensitive_response(topics)}"
+            
+            # Extract structured data from conversation
+            self.extract_patient_data(message, response)
+            
+            # Store in conversation history
+            self.conversation_history.append({"role": "patient", "content": message})
+            self.conversation_history.append({"role": "agent", "content": response})
+            
+            # Debug output
+            print(f"\n📊 Current patient data:")
+            print(f"  Chief complaint: {self.patient_data.chief_complaint}")
+            print(f"  Symptoms: {[s.name for s in self.patient_data.symptoms]}")
+            print(f"  Conditions: {self.patient_data.preexisting_conditions}")
+            print(f"  Allergies: {self.patient_data.allergies}")
+            print(f"  Medications: {self.patient_data.medications}")
+            
+            return {
+                "response": response,
+                "emergency": False,
+                "sensitive": is_sensitive,
+                "patient_data": self.patient_data.dict(),
+                "context_used": context[:2] if context else []
+            }
+            
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            return {
+                "response": "I apologize, but I'm experiencing technical difficulties.",
+                "error": str(e),
+                "patient_data": self.patient_data.dict()
+            }
+    
+    def retrieve_relevant_context(self, message: str) -> List[str]:
+        """Retrieve relevant medical guidelines from vector DB"""
+        try:
+            results = self.vector_db.similarity_search(message, k=3)
+            logger.info(f"Retrieved {len(results)} relevant documents")
+            return results
+        except Exception as e:
+            logger.error(f"Vector DB error: {e}")
+            return []
+    
+    def generate_response(self, message: str, context: List[str]) -> str:
+        """Generate response using Groq API"""
+        try:
+            if not self.api_key:
+                logger.error("No API key found")
+                return "I'm having trouble connecting. Please check the API configuration."
+            
+            # Build context from retrieved guidelines
+            context_text = ""
+            if context:
+                context_text = "\n\nRelevant Medical Guidelines:\n" + "\n".join(context)
+            
+            # Build conversation history for context
+            history_text = ""
+            if len(self.conversation_history) > 0:
+                recent_history = self.conversation_history[-6:]  # Last 3 exchanges
+                history_lines = []
+                for h in recent_history:
+                    history_lines.append(f"{h['role'].upper()}: {h['content']}")
+                history_text = "\nRecent Conversation:\n" + "\n".join(history_lines)
+            
+            # Build user message with context
+            user_message = f"""{context_text}
+
+{history_text}
+
+Current patient message: {message}
+
+Please respond as a professional healthcare intake agent, gathering necessary information in a structured, empathetic way:"""
+            
+            # Groq API endpoint
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "messages": [
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": user_message}
+                ],
+                "model": self.model_name,
+                "temperature": 0.3,
+                "max_tokens": 500
+            }
+            
+            logger.info(f"Sending to Groq with model: {self.model_name}")
+            
+            # Make request
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                response_text = result['choices'][0]['message']['content']
+                logger.info("Successfully received response")
+                return response_text
+            else:
+                logger.error(f"Groq error: {response.status_code} - {response.text}")
+                return "Can you tell me more about your symptoms?"
+            
+        except Exception as e:
+            logger.error(f"Exception: {e}")
+            return "Can you tell me more about your symptoms?"
+    
+    def extract_patient_data(self, message: str, response: str):
+        """Extract structured patient data from conversation"""
+        try:
+            message_lower = message.lower()
+            print(f"\n🔍 Extracting data from: {message}")
+            
+            # Extract chief complaint
+            if not self.patient_data.chief_complaint:
+                complaint_keywords = {
+                    "headache": "Headache",
+                    "nausea": "Nausea",
+                    "pain": "Pain",
+                    "cough": "Cough",
+                    "fever": "Fever",
+                    "fatigue": "Fatigue",
+                    "dizziness": "Dizziness",
+                    "chest pain": "Chest Pain",
+                    "shortness of breath": "Shortness of Breath"
+                }
+                for keyword, complaint in complaint_keywords.items():
+                    if keyword in message_lower:
+                        self.patient_data.chief_complaint = complaint
+                        print(f"✅ Chief complaint: {complaint}")
+                        break
+            
+            # Extract symptoms
+            symptom_keywords = {
+                "headache": "Headache",
+                "nausea": "Nausea",
+                "vomiting": "Vomiting",
+                "pain": "Pain",
+                "fever": "Fever",
+                "cough": "Cough",
+                "fatigue": "Fatigue",
+                "dizziness": "Dizziness",
+                "chest pain": "Chest Pain"
+            }
+            
+            for keyword, symptom_name in symptom_keywords.items():
+                if keyword in message_lower:
+                    existing_names = [s.name.lower() for s in self.patient_data.symptoms]
+                    if keyword not in existing_names:
+                        symptom = Symptom(name=symptom_name)
+                        self.patient_data.symptoms.append(symptom)
+                        print(f"✅ Added symptom: {symptom_name}")
+            
+            # Update symptom details for the most recent symptom
+            if self.patient_data.symptoms:
+                current_symptom = self.patient_data.symptoms[-1]
+                
+                # Extract duration (e.g., "3 days", "2 weeks", "1 month")
+                duration_patterns = [
+                    r'(\d+)\s*days?',
+                    r'(\d+)\s*weeks?',
+                    r'(\d+)\s*months?',
+                    r'(\d+)\s*years?',
+                    r'few\s*days',
+                    r'several\s*days',
+                    r'about\s*(\d+)\s*days?'
+                ]
+                for pattern in duration_patterns:
+                    match = re.search(pattern, message_lower)
+                    if match and not current_symptom.duration:
+                        if 'few' in message_lower or 'several' in message_lower:
+                            current_symptom.duration = "few days"
+                        else:
+                            current_symptom.duration = match.group(0)
+                        print(f"✅ Added duration: {current_symptom.duration}")
+                        break
+                
+                # Extract severity (scale 1-10)
+                severity_match = re.search(r'(\d+)\s*out of 10', message_lower)
+                if severity_match and not current_symptom.severity:
+                    severity_score = int(severity_match.group(1))
+                    if severity_score <= 3:
+                        current_symptom.severity = "mild"
+                    elif severity_score <= 7:
+                        current_symptom.severity = "moderate"
+                    else:
+                        current_symptom.severity = "severe"
+                    print(f"✅ Added severity: {current_symptom.severity}")
+                
+                # Extract location
+                location_keywords = ["left", "right", "front", "back", "top", "bottom", "chest", "abdomen"]
+                for loc in location_keywords:
+                    if f"{loc}" in message_lower and not current_symptom.location:
+                        if "side" in message_lower:
+                            current_symptom.location = f"{loc} side"
+                        else:
+                            current_symptom.location = loc
+                        print(f"✅ Added location: {current_symptom.location}")
+                        break
+            
+            # Extract medical conditions
+            condition_keywords = {
+                "high blood pressure": "Hypertension",
+                "hypertension": "Hypertension",
+                "diabetes": "Diabetes",
+                "asthma": "Asthma",
+                "heart disease": "Heart Disease",
+                "arthritis": "Arthritis"
+            }
+            for keyword, condition in condition_keywords.items():
+                if keyword in message_lower:
+                    if condition not in self.patient_data.preexisting_conditions:
+                        self.patient_data.preexisting_conditions.append(condition)
+                        print(f"✅ Added condition: {condition}")
+            
+            # Extract allergies
+            if "allergic" in message_lower or "allergy" in message_lower:
+                words = message_lower.split()
+                for i, word in enumerate(words):
+                    if word in ["allergic", "allergy"] and i + 1 < len(words):
+                        allergy = words[i + 1].strip('.,!?')
+                        if allergy not in [a.lower() for a in self.patient_data.allergies]:
+                            self.patient_data.allergies.append(allergy.title())
+                            print(f"✅ Added allergy: {allergy}")
+            
+            # Extract medications
+            medication_keywords = [
+                "lisinopril", "metformin", "aspirin", "ibuprofen", "tylenol",
+                "paracetamol", "amoxicillin", "penicillin", "atorvastatin"
+            ]
+            for med in medication_keywords:
+                if med in message_lower:
+                    if med.title() not in self.patient_data.medications:
+                        self.patient_data.medications.append(med.title())
+                        print(f"✅ Added medication: {med}")
+            
+            # Debug output
+            print(f"\n📊 Updated patient data:")
+            print(f"  Chief complaint: {self.patient_data.chief_complaint}")
+            print(f"  Symptoms: {[s.name for s in self.patient_data.symptoms]}")
+            for s in self.patient_data.symptoms:
+                if s.duration:
+                    print(f"    - {s.name}: duration={s.duration}")
+                if s.severity:
+                    print(f"    - {s.name}: severity={s.severity}")
+                if s.location:
+                    print(f"    - {s.name}: location={s.location}")
+            print(f"  Conditions: {self.patient_data.preexisting_conditions}")
+            print(f"  Allergies: {self.patient_data.allergies}")
+            print(f"  Medications: {self.patient_data.medications}")
+            
+        except Exception as e:
+            print(f"❌ Extraction error: {e}")
+            logger.error(f"Data extraction error: {e}")
+    
+    def get_summary(self) -> Dict:
+        """Get structured summary for medical professional"""
+        try:
+            # Calculate completion percentage
+            total_fields = 6
+            completed_fields = 0
+            
+            if self.patient_data.chief_complaint:
+                completed_fields += 1
+            if self.patient_data.symptoms:
+                completed_fields += 1
+            if self.patient_data.preexisting_conditions:
+                completed_fields += 1
+            if self.patient_data.allergies:
+                completed_fields += 1
+            if self.patient_data.medications:
+                completed_fields += 1
+            if self.patient_data.age or self.patient_data.gender:
+                completed_fields += 1
+            
+            completion_percentage = (completed_fields / total_fields) * 100 if total_fields > 0 else 0
+            
+            # Format symptoms for clinical summary
+            symptoms_text = ""
+            for s in self.patient_data.symptoms:
+                symptoms_text += f"- {s.name}"
+                if s.duration:
+                    symptoms_text += f" (Duration: {s.duration})"
+                if s.severity:
+                    symptoms_text += f" [Severity: {s.severity}]"
+                if s.location:
+                    symptoms_text += f" Location: {s.location}"
+                if s.description:
+                    symptoms_text += f" - {s.description}"
+                symptoms_text += "\n"
+            
+            if not symptoms_text:
+                symptoms_text = "No symptoms documented"
+            
+            clinical_summary = f"""
+CLINICAL INTAKE SUMMARY
+=======================
+Chief Complaint: {self.patient_data.chief_complaint or "Not yet documented"}
+
+Symptoms ({len(self.patient_data.symptoms)}):
+{symptoms_text}
+
+Medical History:
+- Conditions: {', '.join(self.patient_data.preexisting_conditions) or "None documented"}
+- Allergies: {', '.join(self.patient_data.allergies) or "None documented"}
+- Medications: {', '.join(self.patient_data.medications) or "None documented"}
+
+Demographics:
+- Age: {self.patient_data.age or "Not documented"}
+- Gender: {self.patient_data.gender or "Not documented"}
+
+Vital Signs:
+- Temperature: {self.patient_data.temperature or "Not documented"}
+- Blood Pressure: {self.patient_data.blood_pressure or "Not documented"}
+- Heart Rate: {self.patient_data.heart_rate or "Not documented"}
+
+Additional Notes: {self.patient_data.additional_notes or "None"}
+"""
+            
+            return {
+                "patient_data": self.patient_data.dict(),
+                "conversation_history": self.conversation_history,
+                "completion_percentage": completion_percentage,
+                "clinical_summary": clinical_summary,
+                "recommendation": "Ready for provider review" if completion_percentage > 50 else "Additional information needed",
+                "generated_at": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in get_summary: {e}")
+            return {
+                "patient_data": self.patient_data.dict(),
+                "conversation_history": self.conversation_history,
+                "error": str(e)
+            }
+    
+    def _format_symptoms(self) -> str:
+        """Format symptoms for display"""
+        if not self.patient_data.symptoms:
+            return "No symptoms documented"
+        
+        formatted = []
+        for s in self.patient_data.symptoms:
+            parts = [f"- {s.name}"]
+            if s.duration:
+                parts.append(f"  Duration: {s.duration}")
+            if s.severity:
+                if hasattr(s.severity, 'value'):
+                    severity_value = s.severity.value
+                else:
+                    severity_value = str(s.severity)
+                parts.append(f"  Severity: {severity_value}")
+            if s.location:
+                parts.append(f"  Location: {s.location}")
+            if s.description:
+                parts.append(f"  Description: {s.description}")
+            formatted.append("\n".join(parts))
+        
+        return "\n".join(formatted)
+    
+    def reset_conversation(self):
+        """Reset the conversation and patient data"""
+        self.patient_data = PatientIntake()
+        self.conversation_history = []
+        logger.info("Conversation reset")

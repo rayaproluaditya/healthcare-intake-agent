@@ -1,0 +1,29 @@
+Standard Diagnostic Protocols for Initial Assessment
+
+History of Present Illness (HPI) Protocol:
+- Onset: When did symptoms start? (sudden or gradual)
+- Location: Where exactly is the symptom?
+- Duration: How long does it last?
+- Character: What does it feel like? (sharp, dull, throbbing, burning)
+- Aggravating factors: What makes it worse?
+- Relieving factors: What makes it better?
+- Timing: Is it constant or intermittent?
+- Severity: On a scale of 1-10
+
+Past Medical History Protocol:
+- Chronic conditions: diabetes, hypertension, heart disease, lung disease
+- Previous surgeries and dates
+- Hospitalizations and reasons
+- Trauma or injuries
+
+Medication History Protocol:
+- Current medications (prescription and OTC)
+- Medication allergies and reactions
+- Adherence to prescribed medications
+- Recent medication changes
+
+Social History Protocol:
+- Tobacco use: status, duration, quantity
+- Alcohol use: frequency, quantity
+- Occupation and exposures
+- Living situation and support system

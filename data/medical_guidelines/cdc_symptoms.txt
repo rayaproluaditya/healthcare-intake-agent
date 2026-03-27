@@ -1,0 +1,25 @@
+CDC Guidelines for Common Symptom Assessment
+
+Fever:
+- Temperature > 100.4°F (38°C) is considered a fever
+- Acute fever: < 7 days duration
+- Subacute fever: 7-14 days duration
+- Chronic fever: > 14 days duration
+- Associated symptoms: chills, sweating, dehydration, headache
+- Red flags: fever in infants < 3 months, fever > 104°F, fever with stiff neck, confusion, or difficulty breathing
+
+Headache Assessment:
+- Tension-type: bilateral location, pressing/tightening quality, mild-moderate severity
+- Migraine: unilateral location, throbbing quality, moderate-severe severity, with nausea/photophobia
+- Cluster: severe, unilateral, orbital/supraorbital location, with autonomic symptoms
+- Red flags: sudden onset, neurological symptoms, onset after age 50, pattern change
+- Emergency: "thunderclap" headache, headache with fever, headache after head injury
+
+Respiratory Symptoms:
+- Cough duration: acute (< 3 weeks), subacute (3-8 weeks), chronic (> 8 weeks)
+- Shortness of breath: assess onset, triggers, severity (mild, moderate, severe)
+- Emergency warning signs: difficulty breathing, chest pain, blue lips/fingers, confusion
+
+Cardiovascular Symptoms:
+- Chest pain: location, radiation, quality, duration, triggers
+- Emergency: chest pain with sweating, nausea, shortness of breath, pain radiating to arm/jaw

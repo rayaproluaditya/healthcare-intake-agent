@@ -1,0 +1,33 @@
+Emergency Medical Protocols for Intake Assessment
+
+Immediate Emergency Situations Requiring 911/EMS:
+
+Cardiac Emergencies:
+- Chest pain with sweating, nausea, shortness of breath
+- Pain radiating to left arm or jaw
+- Cardiac arrest: unresponsive, not breathing
+
+Respiratory Emergencies:
+- Severe difficulty breathing
+- Choking or inability to speak
+- Blue or pale lips or face
+
+Neurological Emergencies:
+- Sudden severe headache (worst of life)
+- Stroke symptoms: facial droop, arm weakness, speech difficulty
+- Seizure lasting > 5 minutes
+- Loss of consciousness
+
+Escalation Protocol:
+
+Level 1 - Immediate Emergency:
+- Action: Instruct patient to call 911 or go to ER
+- Statement: "This appears to be a medical emergency. Please call 911 immediately."
+
+Level 2 - Urgent (Same Day):
+- Action: Recommend urgent care or same-day appointment
+- Statement: "I recommend seeking medical attention today."
+
+Level 3 - Routine (1-7 days):
+- Action: Schedule appointment with primary care provider
+- Statement: "Please schedule an appointment with your provider within the next week."

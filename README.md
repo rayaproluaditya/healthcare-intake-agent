@@ -21,32 +21,46 @@ An AI-powered healthcare intake system that uses Groq's fast inference API for p
 - 💾 **FAISS Vector DB** - Lightweight, efficient similarity search for medical guidelines
 
 ## 🏗️ Architecture
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ DOCKER COMPOSE │
-│ │
-│ ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐ │
-│ │ STREAMLIT UI │ │ FASTAPI APP │ │ FAISS DB │ │
-│ │ Port: 8501 │───▶│ Port: 8000 │───▶│ Memory Store │ │
-│ │ │ │ │ │ │ │
-│ │ • Chat Interface │ │ • Intake Agent │ │ • Medical │ │
-│ │ • Patient Summary│ │ • Safety Rules │ │ Guidelines │ │
-│ │ • Real-time │ │ • Data Extraction│ │ • Embeddings │ │
-│ │ Updates │ │ • API Endpoints │ │ • Similarity │ │
-│ └──────────────────┘ └──────────────────┘ │ Search │ │
-│ │ │ └──────────────────┘ │
-│ │ │ │ │
-│ │ │ ┌────▼────┐ │
-│ │ │ │ Medical │ │
-│ │ │ │Guidelines│ │
-│ │ │ └─────────┘ │
-│ │ │ │
-│ │ ┌──────▼──────┐ │
-│ │ │ GROQ API │ │
-│ └────────────────▶│ External │ │
-│ │ llama-3.3 │ │
-│ └─────────────┘ │
-│ │
-└─────────────────────────────────────────────────────────────────────────────┘
+╔═══════════════════════════════════════════════════════════════════════════════════════════╗
+║                                    DOCKER COMPOSE                                         ║
+║                                                                                           ║
+║  ┌─────────────────────────┐    ┌─────────────────────────┐    ┌─────────────────────────┐║
+║  │      STREAMLIT UI       │    │      FASTAPI APP       │    │       FAISS DB         │║
+║  │       Port: 8501        │    │       Port: 8000        │    │     Memory Store       │║
+║  ├─────────────────────────┤    ├─────────────────────────┤    ├─────────────────────────┤║
+║  │  ┌───────────────────┐  │    │  ┌───────────────────┐  │    │  ┌───────────────────┐  │║
+║  │  │   Chat Interface  │  │    │  │   Intake Agent   │  │    │  │     Medical       │  │║
+║  │  │   User Input      │──┼───▶│  │   Process Message│──┼───▶│  │   Guidelines     │  │║
+║  │  └───────────────────┘  │    │  └───────────────────┘  │    │  └───────────────────┘  │║
+║  │                         │    │                         │    │                         │║
+║  │  ┌───────────────────┐  │    │  ┌───────────────────┐  │    │  ┌───────────────────┐  │║
+║  │  │  Patient Summary  │  │    │  │  Safety Rules    │  │    │  │    Embeddings     │  │║
+║  │  │  Real-time Updates│◀─┼───▶│  │  Data Extraction │◀─┼───▶│  │   Similarity     │  │║
+║  │  └───────────────────┘  │    │  └───────────────────┘  │    │  │     Search       │  │║
+║  └─────────────────────────┘    └─────────────────────────┘    │  └───────────────────┘  │║
+║                                          │                     └─────────────────────────┘║
+║                                          │                                │               ║
+║                                          │                           ┌────▼────┐          ║
+║                                          │                           │ Medical │          ║
+║                                          │                           │Guidelines│          ║
+║                                          │                           └─────────┘          ║
+║                                          │                                                ║
+║                                   ┌──────▼──────┐                                         ║
+║                                   │   GROQ API  │                                         ║
+║                                   │  External   │                                         ║
+║                                   │ llama-3.3   │                                         ║
+║                                   └─────────────┘                                         ║
+║                                                                                           ║
+╚═══════════════════════════════════════════════════════════════════════════════════════════╝
+
+                                    DATA FLOW
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ 1. User Input → Streamlit UI → FastAPI Backend                                         │
+│ 2. Backend → FAISS (Retrieve relevant medical guidelines)                              │
+│ 3. Backend → Groq API (Generate clinical response with context)                        │
+│ 4. Response → Data Extraction → Update patient record                                  │
+│ 5. Updated summary → Streamlit UI sidebar (Real-time refresh)                          │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
 
 Data Flow:
 
